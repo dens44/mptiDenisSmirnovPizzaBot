@@ -29,6 +29,7 @@ dp = Dispatcher(bot, storage=storage)
 
 class StateMachine(StatesGroup):
     main_state = State()
+    registered_state = State()
     register_waiting_phone_state = State()
     register_waiting_email_state = State()
     register_waiting_address_state = State()
@@ -36,11 +37,32 @@ class StateMachine(StatesGroup):
 
 @dp.message_handler(commands=['start', 'help'], state="*")
 async def send_welcome(message: types.Message):
-    await StateMachine.register_waiting_phone_state.set()
+    telegram_id = message.from_user.id
+    user = UsersTable.get_or_none(telegram_id=telegram_id)
 
-    await message.reply(get_message_text("hello"))
+    if user is None:
+        await StateMachine.register_waiting_phone_state.set()
+        await message.reply(get_message_text("hello"))
+    else:
+        await StateMachine.registered_state.set()
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)\
+            .add("Войти", "Удалить аккаунт")
+        await message.reply(get_message_text("registered"), reply_markup=markup)
 
     logging.info(f"{message.from_user.username}: {message.text}")
+
+
+@dp.message_handler(state=StateMachine.registered_state)
+async def handle_registered(message: types.Message, state: FSMContext):
+    if message.text == "Удалить аккаунт":
+        telegram_id = message.from_user.id
+        UsersTable.delete_user_by_telegram_id(telegram_id=telegram_id)
+        await StateMachine.register_waiting_phone_state.set()
+        await message.reply(get_message_text("hello"))
+    else:
+        await state.finish()
+        await StateMachine.main_state.set()
+        await message.answer(get_message_text("enter_ok"), reply_markup=main_keyboard)
 
 
 @dp.message_handler(state=StateMachine.register_waiting_phone_state)
@@ -67,7 +89,7 @@ async def handle_email(message: types.Message, state: FSMContext):
 
 
 @dp.message_handler(state=StateMachine.register_waiting_address_state)
-async def handle_email(message: types.Message, state: FSMContext):
+async def handle_address(message: types.Message, state: FSMContext):
     if message.text != "":
         async with state.proxy() as data:
             data["address"] = message.text if message.text != "Пропустить" else "Не указан"

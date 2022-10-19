@@ -18,6 +18,10 @@ class UsersTable(BaseModel):
     def get_user_by_id(id):
         return UsersTable.get(user_id=id)
 
+    @staticmethod
+    def delete_user_by_telegram_id(telegram_id):
+        UsersTable.delete().where(UsersTable.telegram_id == telegram_id).execute()
+
     def print_user(self):
         print(self.user_id, self.name, self.telegram_id)
 
