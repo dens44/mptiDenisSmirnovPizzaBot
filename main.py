@@ -11,7 +11,8 @@ import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, \
+    InputMediaPhoto
 
 from aiogram.contrib.fsm_storage.files import JSONStorage
 
@@ -58,6 +59,22 @@ async def send_photo(message, filename, caption=None, reply_markup=None):
         )
 
 
+async def send_media_group(message, filenames, caption=None, reply_markup=None):
+    files = []
+    for filename in filenames:
+        file_id = FileTable.get_file_id_by_file_name(filename)
+        if file_id is None:
+            with open(filename, 'rb') as photo:
+                files.append(InputMediaPhoto(photo, caption))
+        else:
+            files.append(InputMediaPhoto(file_id, caption))
+
+    await bot.send_media_group(
+        message.from_user.id,
+        files
+    )
+
+
 @dp.message_handler(commands=['start', 'help'], state="*")
 async def send_welcome(message: types.Message):
     telegram_id = message.from_user.id
@@ -71,6 +88,15 @@ async def send_welcome(message: types.Message):
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True) \
             .add("Войти", "Удалить аккаунт")
         await message.reply(get_message_text("registered"), reply_markup=markup)
+
+    logging.info(f"{message.from_user.username}: {message.text}")
+
+
+@dp.message_handler(commands='mediagroup', state="*")
+async def send_mediagroup_handler(message: types.Message):
+    await send_media_group(message,
+                           filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"],
+                           caption="TEXT")
 
     logging.info(f"{message.from_user.username}: {message.text}")
 
@@ -144,9 +170,9 @@ async def main_state_handler(message: types.Message, state: FSMContext):
                 message,
                 f'data/pizza_{pizza.pizza_id}.jpg',
                 caption=get_message_text("pizza_show",
-                                      name=pizza.name,
-                                      desc=pizza.desc,
-                                      price=pizza.price),
+                                         name=pizza.name,
+                                         desc=pizza.desc,
+                                         price=pizza.price),
                 reply_markup=markup
             )
 
@@ -186,6 +212,7 @@ async def order_waiting_count_handler(message: types.Message, state: FSMContext)
         current_address = UsersTable.get(telegram_id=message.from_user.id).address
         await message.answer(get_message_text("order_get_address", address=current_address), reply_markup=markup)
         await StateMachine.order_waiting_address_state.set()
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
