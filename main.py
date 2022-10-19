@@ -33,6 +33,8 @@ class StateMachine(StatesGroup):
     register_waiting_phone_state = State()
     register_waiting_email_state = State()
     register_waiting_address_state = State()
+    order_waiting_count_state = State()
+    order_waiting_address_state = State()
 
 
 @dp.message_handler(commands=['start', 'help'], state="*")
@@ -45,7 +47,7 @@ async def send_welcome(message: types.Message):
         await message.reply(get_message_text("hello"))
     else:
         await StateMachine.registered_state.set()
-        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)\
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True) \
             .add("Войти", "Удалить аккаунт")
         await message.reply(get_message_text("registered"), reply_markup=markup)
 
@@ -126,6 +128,39 @@ async def main_state_handler(message: types.Message, state: FSMContext):
     elif message.text == "Сделать заказ":
         pass
 
+
+@dp.callback_query_handler(text_startswith="order_pizza_", state=StateMachine.main_state)
+async def main_state_handler(call: types.CallbackQuery, state: FSMContext):
+    pizza_id = call.data.split('_')[2]
+
+    async with state.proxy() as data:
+        data["order_pizza_id"] = pizza_id
+
+    pizza: PizzaTable = PizzaTable.get(pizza_id=pizza_id)
+    markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+
+    markup.add("отменить")
+    markup.add("1", "2", "3", "4", "5", "10", "15")
+
+    await call.message.answer(get_message_text("order_get_count", name=pizza.name), reply_markup=markup)
+    await StateMachine.order_waiting_count_state.set()
+    await call.answer()
+
+
+@dp.message_handler(state=StateMachine.order_waiting_count_state)
+async def order_waiting_count_handler(message: types.Message, state: FSMContext):
+    if message.text == "отменить":
+        await state.finish()
+        await StateMachine.main_state.set()
+    elif re.fullmatch("[0-9]{1,3}", message.text):
+        count = int(message.text)
+        async with state.proxy() as data:
+            data["order_count"] = count
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.add("отменить", "подтвердить")
+        current_address = UsersTable.get(telegram_id=message.from_user.id).address
+        await message.answer(get_message_text("order_get_address", address=current_address), reply_markup=markup)
+        await StateMachine.order_waiting_address_state.set()
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
