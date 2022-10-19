@@ -12,3 +12,7 @@ class OrdersTable(BaseModel):
     address = TextField()
     price = IntegerField()
     status = TextField()
+
+    @staticmethod
+    def set_order_done(order_id):
+        OrdersTable.update(status="done").where(OrdersTable.order_id == order_id).execute()

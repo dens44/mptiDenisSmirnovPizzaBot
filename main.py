@@ -36,6 +36,8 @@ class StateMachine(StatesGroup):
     register_waiting_address_state = State()
     order_waiting_count_state = State()
     order_waiting_address_state = State()
+    order_waiting_accept_state = State()
+    order_in_work_state = State()
 
 
 async def send_photo(message, filename, caption=None, reply_markup=None):
@@ -205,14 +207,85 @@ async def order_waiting_count_handler(message: types.Message, state: FSMContext)
         await StateMachine.main_state.set()
     elif re.fullmatch("[0-9]{1,3}", message.text):
         count = int(message.text)
+        current_address = UsersTable.get(telegram_id=message.from_user.id).address
         async with state.proxy() as data:
             data["order_count"] = count
+            data["order_address"] = current_address
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add("отменить", "подтвердить")
-        current_address = UsersTable.get(telegram_id=message.from_user.id).address
         await message.answer(get_message_text("order_get_address", address=current_address), reply_markup=markup)
         await StateMachine.order_waiting_address_state.set()
 
+
+@dp.message_handler(state=StateMachine.order_waiting_address_state)
+async def order_waiting_address_handler(message: types.Message, state: FSMContext):
+    if message.text == "отменить":
+        await state.finish()
+        await StateMachine.main_state.set()
+        return
+    elif message.text != "подтвердить":
+        async with state.proxy() as data:
+            data["order_address"] = message.text
+
+    async with state.proxy() as data:
+        address = data["order_address"]
+        count = data["order_count"]
+        pizza_id = data["order_pizza_id"]
+
+    pizza: PizzaTable = PizzaTable.get(pizza_id=pizza_id)
+    price = count * pizza.price
+    async with state.proxy() as data:
+        data["order_price"] = price
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("отменить", "подтвердить")
+
+    await message.answer(
+        get_message_text("order_accept", name=pizza.name, count=count, price=price, address=address),
+        reply_markup=markup)
+
+    await StateMachine.order_waiting_accept_state.set()
+
+
+@dp.message_handler(state=StateMachine.order_waiting_accept_state)
+async def order_waiting_accept_handler(message: types.Message, state: FSMContext):
+    if message.text == "отменить":
+        await state.finish()
+        await StateMachine.main_state.set()
+        return
+    elif message.text == "подтвердить":
+        async with state.proxy() as data:
+            address = data["order_address"]
+            count = data["order_count"]
+            pizza_id = data["order_pizza_id"]
+            price = data["order_price"]
+        order = OrdersTable.create(
+            user_id=UsersTable.get(telegram_id=message.from_user.id).user_id,
+            pizza_id=pizza_id,
+            pizza_count=count,
+            address=address,
+            price=price,
+            status="in_work"
+        )
+        async with state.proxy() as data:
+            data["order_id"] = order.order_id
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.add("Получил, спасибо!")
+        await message.answer(get_message_text("order_in_work", order_number=order.order_id), reply_markup=markup)
+        await StateMachine.order_in_work_state.set()
+
+
+@dp.message_handler(state=StateMachine.order_in_work_state)
+async def order_in_work_handler(message: types.Message, state: FSMContext):
+    if message.text == "Получил, спасибо!":
+        async with state.proxy() as data:
+            order_id = data["order_id"]
+        OrdersTable.set_order_done(order_id)
+        await state.finish()
+        await StateMachine.main_state.set()
+        await message.answer(get_message_text("order_done"), reply_markup=main_keyboard)
+        return
+    else:
+        await message.answer(get_message_text("order_fails"))
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
