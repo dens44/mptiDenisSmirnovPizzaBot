@@ -3,7 +3,7 @@ import re
 from aiogram.utils import callback_data
 
 import database
-from database import UsersTable, PizzaTable, OrdersTable
+from database import UsersTable, PizzaTable, OrdersTable, FileTable
 from messages import get_message_text, main_keyboard
 
 import logging
@@ -35,6 +35,27 @@ class StateMachine(StatesGroup):
     register_waiting_address_state = State()
     order_waiting_count_state = State()
     order_waiting_address_state = State()
+
+
+async def send_photo(message, filename, caption=None, reply_markup=None):
+    file_id = FileTable.get_file_id_by_file_name(filename)
+    if file_id is None:
+        # upload_file
+        with open(filename, 'rb') as photo:
+            result = await message.answer_photo(
+                photo,
+                caption=caption,
+                reply_markup=reply_markup
+            )
+            file_id = result.photo[0].file_id
+            FileTable.create(telegram_file_id=file_id, file_name=filename)
+    else:
+        await bot.send_photo(
+            message.from_user.id,
+            file_id,
+            caption=caption,
+            reply_markup=reply_markup
+        )
 
 
 @dp.message_handler(commands=['start', 'help'], state="*")
@@ -118,13 +139,17 @@ async def main_state_handler(message: types.Message, state: FSMContext):
         for pizza in PizzaTable.get_menu():
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("Заказать", callback_data=f"order_pizza_{pizza.pizza_id}"))
-            await message.answer(
-                text=get_message_text("pizza_show",
+
+            await send_photo(
+                message,
+                f'data/pizza_{pizza.pizza_id}.jpg',
+                caption=get_message_text("pizza_show",
                                       name=pizza.name,
                                       desc=pizza.desc,
                                       price=pizza.price),
                 reply_markup=markup
             )
+
     elif message.text == "Сделать заказ":
         pass
 
