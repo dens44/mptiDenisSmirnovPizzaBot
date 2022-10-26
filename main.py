@@ -287,5 +287,10 @@ async def order_in_work_handler(message: types.Message, state: FSMContext):
     else:
         await message.answer(get_message_text("order_fails"))
 
-if __name__ == '__main__':
+
+def main():
     executor.start_polling(dp, skip_updates=True)
+
+
+if __name__ == '__main__':
+    main()
