@@ -19,9 +19,15 @@ from aiogram.contrib.fsm_storage.files import JSONStorage
 from messages import get_message_text
 from settings import API_TOKEN
 
+import os
+
 logging.basicConfig(level=logging.DEBUG)
 
-bot = Bot(token=API_TOKEN)
+if "https_proxy" in os.environ:
+    proxy_url = os.environ["https_proxy"]
+    bot = Bot(token=API_TOKEN, proxy=proxy_url)
+else:
+    bot = Bot(token=API_TOKEN)
 
 storage = JSONStorage("states.json")
 
