@@ -1,9 +1,10 @@
 import re
+from random import random
 
 from aiogram.utils import callback_data
 
 import database
-from database import UsersTable, PizzaTable, OrdersTable, FileTable
+from database import UsersTable, PizzaTable, OrdersTable, FileTable, CouponTable
 from messages import get_message_text, main_keyboard
 
 import logging
@@ -20,6 +21,7 @@ from messages import get_message_text
 from settings import API_TOKEN, NEED_SAVE_LOGS_TO_FILE
 
 import os
+
 if NEED_SAVE_LOGS_TO_FILE:
     logging.basicConfig(filename="pizzabot.log",
                         filemode='a',
@@ -191,7 +193,15 @@ async def main_state_handler(message: types.Message, state: FSMContext):
             )
 
     elif message.text == "Сделать заказ":
-        pass
+        await send_media_group(message,
+                               filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"],
+                               caption="TEXT")
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("Заказать Пицца 1", callback_data=f"order_pizza_1"))
+        markup.insert(InlineKeyboardButton("Заказать Пицца 2", callback_data=f"order_pizza_2"))
+        markup.insert(InlineKeyboardButton("Заказать Пицца 3", callback_data=f"order_pizza_3"))
+
+        await message.answer("Выберите пиццу", reply_markup=markup)
 
 
 @dp.callback_query_handler(text_startswith="order_pizza_", state=StateMachine.main_state)
@@ -262,6 +272,7 @@ async def order_waiting_address_handler(message: types.Message, state: FSMContex
 async def order_waiting_accept_handler(message: types.Message, state: FSMContext):
     if message.text == "отменить":
         await state.finish()
+        await message.answer("Заказ отменён", reply_markup=main_keyboard)
         await StateMachine.main_state.set()
         return
     elif message.text == "подтвердить":
@@ -295,6 +306,9 @@ async def order_in_work_handler(message: types.Message, state: FSMContext):
         await state.finish()
         await StateMachine.main_state.set()
         await message.answer(get_message_text("order_done"), reply_markup=main_keyboard)
+        coupon_id = random(100, 1000)
+        CouponTable.add_coupon(coupon_id=coupon_id, coupon_discount=10)
+        await message.answer(get_message_text("coupon_created"))
         return
     else:
         await message.answer(get_message_text("order_fails"))

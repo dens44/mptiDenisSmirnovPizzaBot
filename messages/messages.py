@@ -17,6 +17,7 @@ msgs = {
     "order_in_work": "Ваш заказ готовится и выезжает к Вам! Пожалуйста, сообщите нам как его получите! \nНомер заказа: {order_number}",
     "order_done": "Приятного аппетита!",
     "order_fails": "Если у Вас есть проблемы с заказом, пожалуйста, напишите @elizar",
+    "coupon_created": "Дарим Вам купон на скидку 10% при следующем заказе. Номер купона:"
 }
 
 main_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
