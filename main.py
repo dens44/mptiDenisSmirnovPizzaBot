@@ -1,5 +1,5 @@
 import re
-from random import random
+from random import random, randint
 
 from aiogram.utils import callback_data
 
@@ -306,7 +306,7 @@ async def order_in_work_handler(message: types.Message, state: FSMContext):
         await state.finish()
         await StateMachine.main_state.set()
         await message.answer(get_message_text("order_done"), reply_markup=main_keyboard)
-        coupon_id = random(100, 1000)
+        coupon_id = randint(100, 1000)
         CouponTable.add_coupon(coupon_id=coupon_id, coupon_discount=10)
         await message.answer(get_message_text("coupon_created"))
         return
