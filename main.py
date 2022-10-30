@@ -4,7 +4,7 @@ from random import random, randint
 from aiogram.utils import callback_data
 
 import database
-from database import UsersTable, PizzaTable, OrdersTable, FileTable, CouponTable
+from database import UsersTable, PizzaTable, OrdersTable, FileTable, CouponTable, UncheckMsgsTable
 from messages import get_message_text, main_keyboard
 
 import logging
@@ -49,6 +49,7 @@ class StateMachine(StatesGroup):
     register_waiting_email_state = State()
     register_waiting_address_state = State()
     order_waiting_count_state = State()
+    order_waiting_coupon_state = State()
     order_waiting_address_state = State()
     order_waiting_accept_state = State()
     order_in_work_state = State()
@@ -75,15 +76,15 @@ async def send_photo(message, filename, caption=None, reply_markup=None):
         )
 
 
-async def send_media_group(message, filenames, caption=None, reply_markup=None):
+async def send_media_group(message, filenames, reply_markup=None):
     files = []
     for filename in filenames:
         file_id = FileTable.get_file_id_by_file_name(filename)
         if file_id is None:
             with open(filename, 'rb') as photo:
-                files.append(InputMediaPhoto(photo, caption))
+                files.append(InputMediaPhoto(photo, caption=f"Пицца {filename[-5]}"))
         else:
-            files.append(InputMediaPhoto(file_id, caption))
+            files.append(InputMediaPhoto(file_id, caption=f"Пицца {filename[-5]}"))
 
     await bot.send_media_group(
         message.from_user.id,
@@ -111,8 +112,7 @@ async def send_welcome(message: types.Message):
 @dp.message_handler(commands='mediagroup', state="*")
 async def send_mediagroup_handler(message: types.Message):
     await send_media_group(message,
-                           filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"],
-                           caption="TEXT")
+                           filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"])
 
     logging.info(f"{message.from_user.username}: {message.text}")
 
@@ -194,8 +194,7 @@ async def main_state_handler(message: types.Message, state: FSMContext):
 
     elif message.text == "Сделать заказ":
         await send_media_group(message,
-                               filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"],
-                               caption="TEXT")
+                               filenames=["data/pizza_1.jpg", "data/pizza_2.jpg", "data/pizza_3.jpg"])
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("Заказать Пицца 1", callback_data=f"order_pizza_1"))
         markup.insert(InlineKeyboardButton("Заказать Пицца 2", callback_data=f"order_pizza_2"))
@@ -226,23 +225,77 @@ async def main_state_handler(call: types.CallbackQuery, state: FSMContext):
 async def order_waiting_count_handler(message: types.Message, state: FSMContext):
     if message.text == "отменить":
         await state.finish()
+        await message.answer("Заказ отменён", reply_markup=main_keyboard)
         await StateMachine.main_state.set()
     elif re.fullmatch("[0-9]{1,3}", message.text):
         count = int(message.text)
-        current_address = UsersTable.get(telegram_id=message.from_user.id).address
         async with state.proxy() as data:
             data["order_count"] = count
-            data["order_address"] = current_address
+            data["coupon_shown"] = 0
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add("отменить", "подтвердить")
-        await message.answer(get_message_text("order_get_address", address=current_address), reply_markup=markup)
-        await StateMachine.order_waiting_address_state.set()
+        await message.answer(get_message_text("coupon_requested"), reply_markup=markup)
+        await StateMachine.order_waiting_coupon_state.set()
+
+
+@dp.message_handler(state=StateMachine.order_waiting_coupon_state)
+async def order_waiting_coupon_handler(message: types.Message, state: FSMContext):
+    if message.text == "отменить":
+        await state.finish()
+        await message.answer("Заказ отменён", reply_markup=main_keyboard)
+        await StateMachine.main_state.set()
+        return
+    elif message.text == "подтвердить":
+        order_discount = 1.0
+    elif re.fullmatch("[0-9]{3,4}", message.text):
+        coupon_shown = int(message.text)
+        coupon_existed = CouponTable.get_or_none(coupon_id=coupon_shown)
+        if coupon_existed is None:
+            await message.reply(get_message_text("coupon_not_existed"))
+            order_discount = 1.0
+        else:
+            await message.reply(get_message_text("coupon_is_existed", coupon_shown, 10))
+            order_discount = 0.9
+            async with state.proxy() as data:
+                data["coupon_shown"] = coupon_shown
+    else:
+        await message.reply(get_message_text("coupon_not_existed"))
+        order_discount = 1.0
+
+    current_address = UsersTable.get(telegram_id=message.from_user.id).address
+    async with state.proxy() as data:
+        data["order_discount"] = order_discount
+        data["order_address"] = current_address
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("отменить", "подтвердить")
+    await message.answer(get_message_text("order_get_address", address=current_address),
+                         reply_markup=markup)
+    await StateMachine.order_waiting_address_state.set()
+
+
+#
+# @dp.message_handler(state=StateMachine.order_waiting_count_state)
+# async def order_waiting_count_handler(message: types.Message, state: FSMContext):
+#     if message.text == "отменить":
+#         await state.finish()
+#         await StateMachine.main_state.set()
+#     elif re.fullmatch("[0-9]{1,3}", message.text):
+#         count = int(message.text)
+#         current_address = UsersTable.get(telegram_id=message.from_user.id).address
+#         async with state.proxy() as data:
+#             data["order_count"] = count
+#             data["order_address"] = current_address
+#         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+#         markup.add("отменить", "подтвердить")
+#         await message.answer(get_message_text("order_get_address", address=current_address), reply_markup=markup)
+#         await StateMachine.order_waiting_address_state.set()
 
 
 @dp.message_handler(state=StateMachine.order_waiting_address_state)
 async def order_waiting_address_handler(message: types.Message, state: FSMContext):
     if message.text == "отменить":
         await state.finish()
+        await message.answer("Заказ отменён", reply_markup=main_keyboard)
         await StateMachine.main_state.set()
         return
     elif message.text != "подтвердить":
@@ -253,9 +306,10 @@ async def order_waiting_address_handler(message: types.Message, state: FSMContex
         address = data["order_address"]
         count = data["order_count"]
         pizza_id = data["order_pizza_id"]
+        order_discount = data["order_discount"]
 
     pizza: PizzaTable = PizzaTable.get(pizza_id=pizza_id)
-    price = count * pizza.price
+    price = count * pizza.price * order_discount
     async with state.proxy() as data:
         data["order_price"] = price
     markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -302,17 +356,23 @@ async def order_in_work_handler(message: types.Message, state: FSMContext):
     if message.text == "Получил, спасибо!":
         async with state.proxy() as data:
             order_id = data["order_id"]
+            coupon_shown = data["coupon_shown"]
         OrdersTable.set_order_done(order_id)
+        CouponTable.delete_coupon_by_coupon_id(coupon_shown)
         await state.finish()
         await StateMachine.main_state.set()
         await message.answer(get_message_text("order_done"), reply_markup=main_keyboard)
         coupon_id = randint(100, 1000)
         CouponTable.add_coupon(coupon_id=coupon_id, coupon_discount=10)
-        await message.answer(get_message_text("coupon_created"))
+        await message.answer(get_message_text("coupon_created", coupon_id))
         return
+    elif re.fullmatch(".*(почему|ни[кч].*|задерж.*|сколь.*|курьер.*|врем.*|достав.*|ещ.*|жд.*|оп[оа]зд*).*",
+                      message.text):
+        await message.answer(get_message_text("order_delayed"))
     else:
         await message.answer(get_message_text("order_fails"))
-
+        uncheck_msg = UncheckMsgsTable.create(msg_text=message.text)
+        print(uncheck_msg.msg_text)
 
 def main():
     executor.start_polling(dp, skip_updates=True)
