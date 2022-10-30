@@ -200,7 +200,7 @@ async def main_state_handler(message: types.Message, state: FSMContext):
         markup.insert(InlineKeyboardButton("Заказать Пицца 2", callback_data=f"order_pizza_2"))
         markup.insert(InlineKeyboardButton("Заказать Пицца 3", callback_data=f"order_pizza_3"))
 
-        await message.answer("Выберите пиццу", reply_markup=markup)
+        await message.answer("Пицца 1, цена 100 руб. Пицца 2, цена 200 руб. Пицца 3, цена 300 руб. Выберите пиццу", reply_markup=markup)
 
 
 @dp.callback_query_handler(text_startswith="order_pizza_", state=StateMachine.main_state)
@@ -366,8 +366,8 @@ async def order_in_work_handler(message: types.Message, state: FSMContext):
         CouponTable.add_coupon(coupon_id=coupon_id, coupon_discount=10)
         await message.answer(get_message_text("coupon_created", coupon_id))
         return
-    elif re.fullmatch(".*(почему|ни[кч].*|задерж.*|сколь.*|курьер.*|врем.*|достав.*|ещ.*|жд.*|оп[оа]зд*).*",
-                      message.text):
+    elif re.fullmatch(".*(не*|когда|почему|ни[кч].*|задерж.*|сколь.*|курьер.*|врем.*|достав.*|ещ.*|жд.*|оп[оа]зд*).*",
+                      message.text.casefold()):
         await message.answer(get_message_text("order_delayed"))
     else:
         await message.answer(get_message_text("order_fails"))
